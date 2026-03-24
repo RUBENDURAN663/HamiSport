@@ -1,0 +1,48 @@
+:root {
+  /* Paleta base — Mediterráneo + Azul Cariñe + Azul Grisalho */
+  --navy:           #0A1628;
+  --navy-2:         #0F2040;
+  --navy-3:         #162B52;
+
+  /* Mediterráneo */
+  --med:            #1A6B8A;
+  --med-2:          #2E9BBF;
+  --med-light:      #7DCCE0;
+  --med-surface:    #0A2D3A;
+
+  /* Azul Cariñe */
+  --carine:         #1B4F8A;
+  --carine-2:       #2E72BF;
+  --carine-light:   #7AAEE0;
+  --carine-surface: #0A1F3A;
+
+  /* Azul Grisalho */
+  --grisalho:       #4A6B8A;
+  --grisalho-2:     #7BA3C0;
+  --grisalho-light: #B0CCDE;
+  --grisalho-surface: #1A2A38;
+
+  /* Morado — acento */
+  --purple:         #2D1B69;
+  --purple-2:       #3D2A8A;
+  --purple-3:       #5A42B5;
+  --violet:         #7B6FD4;
+  --violet-light:   #B8C0F0;
+  --violet-surface: #151228;
+
+  /* Neutros */
+  --white:          #EEF4FA;
+  --muted:          rgba(238, 244, 250, 0.5);
+  --border:         rgba(46, 155, 191, 0.2);
+  --border-soft:    rgba(238, 244, 250, 0.07);
+
+  /* Semánticos */
+  --success:        #1D9E75;
+  --error:          #E24B4A;
+
+  /* Layout */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+}
