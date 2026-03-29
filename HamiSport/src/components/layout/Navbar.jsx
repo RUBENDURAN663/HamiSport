@@ -19,12 +19,13 @@ const Navbar = () => {
   const isActive = (path) => location.pathname === path
 
   const navLinks = [
-    { path: '/',           label: 'Inicio' },
-    { path: '/library',    label: 'Biblioteca' },
-    { path: '/nutrition',  label: 'Nutrición' },
-    { path: '/dashboard',  label: 'Mi perfil' },
-    ...(user?.role === 'admin' ? [{ path: '/admin', label: 'Admin' }] : [])
-  ]
+  { path: '/',          label: 'Inicio' },
+  { path: '/library',   label: 'Biblioteca' },
+  { path: '/routines',  label: 'Rutinas' },
+  { path: '/nutrition', label: 'Nutrición' },
+  { path: '/dashboard', label: 'Mi perfil' },
+  ...(user?.role === 'admin' ? [{ path: '/admin', label: 'Admin' }] : [])
+]
 
   return (
     <>

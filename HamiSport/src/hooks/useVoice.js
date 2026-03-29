@@ -8,54 +8,107 @@ const useVoice = () => {
   const [transcript, setTranscript] = useState('')
   const [response, setResponse]     = useState('')
   const [error, setError]           = useState('')
+  const [history, setHistory]       = useState([])
 
-  const recognitionRef  = useRef(null)
-  const synthRef        = useRef(window.speechSynthesis)
-  const hasResultRef    = useRef(false)
+  const recognitionRef = useRef(null)
+  const synthRef       = useRef(window.speechSynthesis)
+  const hasResultRef   = useRef(false)
+  const historyRef     = useRef([])
 
   const isSupported = 'SpeechRecognition' in window || 'webkitSpeechRecognition' in window
+
+  const getBestVoice = useCallback(() => {
+    const voices = synthRef.current.getVoices()
+    if (!voices.length) return null
+
+    const neuralVoice = voices.find(v =>
+      v.lang.startsWith('es') &&
+      (v.name.includes('Neural') || v.name.includes('Google') || v.name.includes('Microsoft'))
+    )
+    if (neuralVoice) return neuralVoice
+
+    const onlineVoice = voices.find(v =>
+      v.lang.startsWith('es') && !v.localService
+    )
+    if (onlineVoice) return onlineVoice
+
+    const anySpanish = voices.find(v => v.lang.startsWith('es'))
+    if (anySpanish) return anySpanish
+
+    return voices[0] || null
+  }, [])
 
   const speak = useCallback((text) => {
     return new Promise((resolve) => {
       synthRef.current.cancel()
-      const utterance    = new SpeechSynthesisUtterance(text)
-      utterance.lang     = 'es-ES'
-      utterance.rate     = 1.0
-      utterance.pitch    = 1.0
+
+      const trySpeak = () => {
+        const utterance = new SpeechSynthesisUtterance(text)
+        const bestVoice = getBestVoice()
+
+        if (bestVoice) {
+          utterance.voice = bestVoice
+          utterance.lang  = bestVoice.lang
+          const isNeural  = bestVoice.name.includes('Neural') || bestVoice.name.includes('Google')
+          utterance.rate  = isNeural ? 1.05 : 0.92
+          utterance.pitch = isNeural ? 1.0  : 1.05
+        } else {
+          utterance.lang  = 'es-ES'
+          utterance.rate  = 0.92
+          utterance.pitch = 1.05
+        }
+
+        utterance.volume  = 1.0
+        utterance.onend   = () => resolve()
+        utterance.onerror = () => resolve()
+        synthRef.current.speak(utterance)
+      }
 
       const voices = synthRef.current.getVoices()
-      const spanishVoice = voices.find(v => v.lang.startsWith('es') && v.localService)
-                        || voices.find(v => v.lang.startsWith('es'))
-      if (spanishVoice) utterance.voice = spanishVoice
-
-      utterance.onend   = () => resolve()
-      utterance.onerror = () => resolve()
-      synthRef.current.speak(utterance)
+      if (voices.length === 0) {
+        synthRef.current.onvoiceschanged = () => {
+          synthRef.current.onvoiceschanged = null
+          trySpeak()
+        }
+      } else {
+        trySpeak()
+      }
     })
-  }, [])
-
-  
+  }, [getBestVoice])
 
   const processMessage = useCallback(async (text) => {
-  if (!text.trim()) return
-  setTranscript(text)
-  setStatus('thinking')
-  DashboardService.logActivity('ai_query')
+    if (!text.trim()) return
 
-  try {
-    const data = await AIService.sendMessage(text)
-    setResponse(data.reply)
-    setStatus('speaking')
-    await speak(data.reply)
-    setStatus('idle')
-  } catch (err) {
-    const errMsg = 'No pude procesar tu consulta. Intenta de nuevo.'
-    setError(errMsg)
-    setStatus('error')
-    await speak(errMsg)
-    setTimeout(() => { setStatus('idle'); setError('') }, 3000)
-  }
-}, [speak])
+    setTranscript(text)
+    setStatus('thinking')
+    DashboardService.logActivity('ai_query')
+
+    const userMessage    = { role: 'user', content: text }
+    const currentHistory = historyRef.current
+    const updatedHistory = [...currentHistory, userMessage]
+
+    try {
+      const data  = await AIService.sendMessage(text, currentHistory)
+      const reply = data.reply
+
+      const assistantMessage = { role: 'assistant', content: reply }
+      const newHistory       = [...updatedHistory, assistantMessage]
+
+      historyRef.current = newHistory
+      setHistory(newHistory)
+      setResponse(reply)
+      setStatus('speaking')
+      await speak(reply)
+      setStatus('idle')
+
+    } catch (err) {
+      const errMsg = 'No pude procesar tu consulta. Intenta de nuevo.'
+      setError(errMsg)
+      setStatus('error')
+      await speak(errMsg)
+      setTimeout(() => { setStatus('idle'); setError('') }, 3000)
+    }
+  }, [speak])
 
   const startListening = useCallback(() => {
     if (!isSupported) {
@@ -83,42 +136,73 @@ const useVoice = () => {
     }
 
     recognition.onresult = (event) => {
-  hasResultRef.current = true
-  let finalTranscript = ''
-  let interimTranscript = ''
+      hasResultRef.current  = true
+      let finalTranscript   = ''
+      let interimTranscript = ''
 
-  for (let i = event.resultIndex; i < event.results.length; i++) {
-    if (event.results[i].isFinal) {
-      finalTranscript += event.results[i][0].transcript
-    } else {
-      interimTranscript += event.results[i][0].transcript
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        if (event.results[i].isFinal) {
+          finalTranscript += event.results[i][0].transcript
+        } else {
+          interimTranscript += event.results[i][0].transcript
+        }
+      }
+
+      if (finalTranscript) {
+        recognition.stop()
+        processMessage(finalTranscript)
+      } else if (interimTranscript) {
+        setTranscript(interimTranscript)
+      }
     }
-  }
 
-  if (finalTranscript) {
-    recognition.stop()
-    processMessage(finalTranscript)
-  } else if (interimTranscript) {
-    setTranscript(interimTranscript)
-  }
-}
-
-    recognition.onspeechend = () => {
-      recognition.stop()
-    }
+    recognition.onspeechend = () => recognition.stop()
 
     recognition.onerror = (event) => {
-      if (event.error === 'no-speech') {
+      if (event.error === 'network') {
+        const retryCount = (recognitionRef.current?._retryCount || 0) + 1
+        if (retryCount <= 3) {
+          setError(`Reconectando micrófono... (intento ${retryCount}/3)`)
+          const delay = retryCount * 1200
+          setTimeout(() => {
+            try {
+              const newRecognition               = new SpeechRecognition()
+              newRecognition.lang                = 'es-MX'
+              newRecognition.interimResults      = true
+              newRecognition.maxAlternatives     = 3
+              newRecognition.continuous          = false
+              newRecognition._retryCount         = retryCount
+              newRecognition.onstart             = recognition.onstart
+              newRecognition.onresult            = recognition.onresult
+              newRecognition.onspeechend         = recognition.onspeechend
+              newRecognition.onerror             = recognition.onerror
+              newRecognition.onend               = recognition.onend
+              recognitionRef.current             = newRecognition
+              newRecognition.start()
+            } catch (e) {
+              setError('No se pudo reconectar el micrófono. Usa el texto.')
+              setStatus('error')
+              setTimeout(() => { setStatus('idle'); setError('') }, 4000)
+            }
+          }, delay)
+        } else {
+          setError('El micrófono no está disponible ahora. Usa el campo de texto.')
+          setStatus('error')
+          setTimeout(() => { setStatus('idle'); setError('') }, 5000)
+        }
+      } else if (event.error === 'no-speech') {
         setError('No escuché nada. Intenta hablar más cerca del micrófono.')
+        setStatus('error')
+        setTimeout(() => { setStatus('idle'); setError('') }, 4000)
       } else if (event.error === 'not-allowed') {
         setError('Debes permitir el acceso al micrófono.')
-      } else if (event.error === 'network') {
-        setError('Error de red. Verifica tu conexión.')
+        setStatus('error')
+        setTimeout(() => { setStatus('idle'); setError('') }, 4000)
       } else {
         setError(`Error: ${event.error}. Intenta de nuevo.`)
+        setStatus('error')
+        setTimeout(() => { setStatus('idle'); setError('') }, 4000)
       }
-      setStatus('error')
-      setTimeout(() => { setStatus('idle'); setError('') }, 4000)
     }
 
     recognition.onend = () => {
@@ -127,7 +211,8 @@ const useVoice = () => {
       }
     }
 
-    recognitionRef.current = recognition
+    recognitionRef.current            = recognition
+    recognitionRef.current._retryCount = 0
 
     try {
       recognition.start()
@@ -136,23 +221,27 @@ const useVoice = () => {
       setStatus('error')
       setTimeout(() => { setStatus('idle'); setError('') }, 3000)
     }
-
   }, [isSupported, processMessage, status])
 
   const stopListening = useCallback(() => {
-    if (recognitionRef.current) {
-      recognitionRef.current.stop()
-    }
+    if (recognitionRef.current) recognitionRef.current.stop()
     synthRef.current.cancel()
     setStatus('idle')
   }, [])
 
- return {
-  status, transcript, response,
-  error, isSupported,
-  startListening, stopListening,
-  processMessage
-}
+  const clearHistory = useCallback(() => {
+    historyRef.current = []
+    setHistory([])
+    setTranscript('')
+    setResponse('')
+  }, [])
+
+  return {
+    status, transcript, response,
+    error, isSupported, history,
+    startListening, stopListening,
+    processMessage, clearHistory
+  }
 }
 
 export default useVoice

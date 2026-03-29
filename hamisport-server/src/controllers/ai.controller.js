@@ -27,7 +27,7 @@ const AIController = {
 
   chat: async (req, res) => {
     try {
-      const { message } = req.body
+      const { message, history = [] } = req.body
 
       if (!message || message.trim() === '') {
         return res.status(400).json({ message: 'El mensaje no puede estar vacío' })
@@ -37,13 +37,23 @@ const AIController = {
         return res.status(400).json({ message: 'El mensaje es demasiado largo' })
       }
 
+      // Validar y sanitizar el historial recibido
+      const validRoles    = ['user', 'assistant']
+      const safeHistory   = Array.isArray(history)
+        ? history
+            .filter(m => m && validRoles.includes(m.role) && typeof m.content === 'string')
+            .slice(-10) // máximo 10 mensajes previos para no exceder tokens
+            .map(m => ({ role: m.role, content: m.content.slice(0, 500) }))
+        : []
+
       const completion = await groq.chat.completions.create({
         model: 'llama-3.3-70b-versatile',
         messages: [
-          { role: 'system',  content: SYSTEM_PROMPT },
-          { role: 'user',    content: message }
+          { role: 'system', content: SYSTEM_PROMPT },
+          ...safeHistory,
+          { role: 'user',   content: message }
         ],
-        max_tokens:  300,
+        max_tokens:  350,
         temperature: 0.7
       })
 

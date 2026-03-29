@@ -1,6 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { useAuth } from '../context/AuthContext'
 import LibraryService from '../services/library.service'
+import FavoriteService from '../services/favorite.service'
+import RoutineService from '../services/routine.service'
 import Navbar from '../components/layout/Navbar'
 import DashboardService from '../services/dashboard.service'
 
@@ -21,9 +24,393 @@ const truncateText = (text, max = 180) => {
   return clean.length <= max ? clean : clean.substring(0, max).trim() + '...'
 }
 
-// ── Modal ──────────────────────────────────────────────────────────────────
+const DAYS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
 
-const ExerciseModal = ({ exercise, onClose }) => {
+// ── Modal selector de rutina — renderizado via Portal ──────────────────────
+
+const RoutineSelector = ({ exercise, routines, onAdd, onClose }) => {
+  const [selectedDay, setSelectedDay] = useState(null)
+  const [loading, setLoading]         = useState(false)
+  const [msg, setMsg]                 = useState('')
+
+  useEffect(() => {
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = '' }
+  }, [])
+
+  const handleAdd = async () => {
+    if (!selectedDay) return
+    const routine = routines.find(r => r.day === selectedDay)
+    if (!routine) {
+      setMsg('error:Ese día no tiene rutina. Ve a Mis Rutinas para crearla primero.')
+      return
+    }
+    const alreadyIn = routine.exercises?.some(e => e.id === exercise.id)
+    if (alreadyIn) {
+      setMsg('error:Este ejercicio ya está en esa rutina')
+      return
+    }
+    setLoading(true)
+    try {
+      await onAdd(routine.id, exercise.id)
+      setMsg('success:¡Ejercicio agregado a la rutina del ' + selectedDay + '!')
+      setTimeout(() => onClose(), 1400)
+    } catch (error) {
+      setMsg('error:' + (error.response?.data?.message || 'Error al agregar'))
+      setLoading(false)
+    }
+  }
+
+  return createPortal(
+    <>
+      <style>{`
+        @keyframes selectorOverlayIn {
+          from { opacity: 0; }
+          to   { opacity: 1; }
+        }
+        @keyframes selectorCardIn {
+          from { opacity: 0; transform: scale(0.93) translateY(16px); }
+          to   { opacity: 1; transform: scale(1) translateY(0); }
+        }
+        .rs-day-btn:hover:not(:disabled) {
+          border-color: rgba(46,155,191,0.45) !important;
+          background: rgba(46,155,191,0.1) !important;
+        }
+        .rs-add-btn:hover:not(:disabled) {
+          filter: brightness(1.1);
+          transform: translateY(-1px);
+        }
+        .rs-cancel-btn:hover {
+          background: rgba(238,244,250,0.06) !important;
+          border-color: var(--border) !important;
+        }
+      `}</style>
+
+      {/* Overlay */}
+      <div
+        style={{
+          position: 'fixed', inset: 0,
+          background: 'rgba(5,10,20,0.82)',
+          backdropFilter: 'blur(8px)',
+          zIndex: 500,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: '20px',
+          animation: 'selectorOverlayIn 0.22s ease forwards'
+        }}
+        onClick={onClose}
+      >
+        {/* Card del selector */}
+        <div
+          style={{
+            background: 'var(--navy-2)',
+            border: '0.5px solid var(--border)',
+            borderRadius: 'var(--radius-xl)',
+            width: '100%', maxWidth: '400px',
+            boxShadow: '0 32px 80px rgba(0,0,0,0.6), 0 0 0 0.5px rgba(46,155,191,0.1)',
+            animation: 'selectorCardIn 0.3s cubic-bezier(0.16,1,0.3,1) forwards',
+            overflow: 'hidden'
+          }}
+          onClick={e => e.stopPropagation()}
+        >
+
+          {/* Header */}
+          <div style={{
+            padding: '18px 20px 16px',
+            borderBottom: '0.5px solid var(--border)',
+            background: 'linear-gradient(135deg, var(--navy-3), rgba(26,107,138,0.08))',
+            display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between'
+          }}>
+            <div>
+              <div style={{ fontSize: '16px', fontWeight: '500', color: 'var(--white)', marginBottom: '3px' }}>
+                Agregar a rutina
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--muted)', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {exercise.name}
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              style={{
+                background: 'transparent', border: 'none',
+                cursor: 'pointer', padding: '2px',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                marginTop: '2px'
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                stroke="#E24B4A" strokeWidth="2.5" strokeLinecap="round">
+                <line x1="18" y1="6" x2="6" y2="18"/>
+                <line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          </div>
+
+          {/* Mensaje */}
+          {msg && (
+            <div style={{
+              margin: '12px 20px 0',
+              borderRadius: 'var(--radius-md)',
+              border: '0.5px solid',
+              fontSize: '12px', padding: '9px 12px',
+              background:  msg.startsWith('error') ? 'rgba(226,75,74,0.1)'  : 'rgba(29,158,117,0.1)',
+              borderColor: msg.startsWith('error') ? 'rgba(226,75,74,0.3)'  : 'rgba(29,158,117,0.3)',
+              color:       msg.startsWith('error') ? '#F09595'               : '#5DCAA5'
+            }}>
+              {msg.split(':')[1]}
+            </div>
+          )}
+
+          {/* Lista de días */}
+          <div style={{ padding: '14px 20px 4px' }}>
+            <div style={{
+              fontSize: '10px', fontWeight: '500', color: 'var(--muted)',
+              letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: '10px'
+            }}>
+              Selecciona el día
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+              {DAYS.map(day => {
+                const routine    = routines.find(r => r.day === day)
+                const hasRoutine = !!routine
+                const alreadyIn  = routine?.exercises?.some(e => e.id === exercise.id)
+                const isSelected = selectedDay === day
+
+                return (
+                  <button
+                    key={day}
+                    className="rs-day-btn"
+                    disabled={alreadyIn}
+                    onClick={() => !alreadyIn && setSelectedDay(isSelected ? null : day)}
+                    style={{
+                      display: 'flex', alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '9px 12px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '0.5px solid',
+                      borderColor: isSelected
+                        ? 'rgba(46,155,191,0.5)'
+                        : alreadyIn
+                        ? 'rgba(29,158,117,0.2)'
+                        : 'var(--border)',
+                      background: isSelected
+                        ? 'rgba(46,155,191,0.12)'
+                        : alreadyIn
+                        ? 'rgba(29,158,117,0.05)'
+                        : 'rgba(15,32,64,0.4)',
+                      cursor: alreadyIn ? 'default' : 'pointer',
+                      transition: 'all 0.15s',
+                      fontFamily: 'inherit',
+                      opacity: alreadyIn ? 0.7 : 1,
+                      width: '100%', textAlign: 'left'
+                    }}
+                  >
+                    {/* Indicador selección */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{
+                        width: '16px', height: '16px', borderRadius: '50%',
+                        border: `1.5px solid ${isSelected ? 'var(--med-2)' : alreadyIn ? '#5DCAA5' : 'var(--border)'}`,
+                        background: isSelected ? 'var(--med-2)' : 'transparent',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        flexShrink: 0, transition: 'all 0.15s'
+                      }}>
+                        {(isSelected || alreadyIn) && (
+                          <svg width="8" height="8" viewBox="0 0 24 24" fill="none"
+                            stroke="white" strokeWidth="3" strokeLinecap="round">
+                            <polyline points="20 6 9 17 4 12"/>
+                          </svg>
+                        )}
+                      </div>
+                      <span style={{
+                        fontSize: '13px', fontWeight: isSelected ? '500' : '400',
+                        color: isSelected ? 'var(--med-light)' : alreadyIn ? '#5DCAA5' : 'var(--white)'
+                      }}>
+                        {day}
+                      </span>
+                    </div>
+
+                    {/* Badge derecho */}
+                    {alreadyIn ? (
+                      <span style={{
+                        fontSize: '10px', color: '#5DCAA5',
+                        background: 'rgba(29,158,117,0.1)',
+                        borderRadius: '20px', padding: '2px 8px', flexShrink: 0
+                      }}>
+                        Ya agregado
+                      </span>
+                    ) : hasRoutine ? (
+                      <span style={{
+                        fontSize: '10px', color: 'var(--muted)',
+                        background: 'rgba(238,244,250,0.05)',
+                        borderRadius: '20px', padding: '2px 8px',
+                        maxWidth: '130px', overflow: 'hidden',
+                        textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 0
+                      }}>
+                        {routine.name}
+                      </span>
+                    ) : (
+                      <span style={{
+                        fontSize: '10px', color: 'var(--muted)',
+                        opacity: 0.5, flexShrink: 0
+                      }}>
+                        Sin rutina
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Acciones */}
+          <div style={{
+            padding: '16px 20px 20px',
+            display: 'flex', gap: '8px'
+          }}>
+            <button
+              className="rs-add-btn"
+              disabled={!selectedDay || loading}
+              onClick={handleAdd}
+              style={{
+                flex: 1, padding: '11px',
+                background: 'linear-gradient(135deg, var(--med), var(--carine))',
+                border: 'none', borderRadius: 'var(--radius-md)',
+                color: 'var(--white)', fontSize: '13px', fontWeight: '500',
+                fontFamily: 'inherit', cursor: !selectedDay || loading ? 'default' : 'pointer',
+                opacity: !selectedDay || loading ? 0.45 : 1,
+                transition: 'all 0.2s'
+              }}
+            >
+              {loading ? 'Agregando...' : 'Agregar a rutina'}
+            </button>
+            <button
+              className="rs-cancel-btn"
+              onClick={onClose}
+              style={{
+                padding: '11px 18px',
+                background: 'transparent',
+                border: '0.5px solid var(--border-soft)',
+                borderRadius: 'var(--radius-md)',
+                color: 'var(--muted)', fontSize: '13px',
+                cursor: 'pointer', fontFamily: 'inherit',
+                transition: 'all 0.2s'
+              }}
+            >
+              Cancelar
+            </button>
+          </div>
+
+        </div>
+      </div>
+    </>,
+    document.body
+  )
+}
+
+// ── Botón favorito ─────────────────────────────────────────────────────────
+
+const FavoriteBtn = ({ exerciseId, favoriteIds, onToggle, position = 'card' }) => {
+  const isFav             = favoriteIds.includes(exerciseId)
+  const [loading, setLoading] = useState(false)
+
+  const handleClick = async (e) => {
+    e.stopPropagation()
+    if (loading) return
+    setLoading(true)
+    await onToggle(exerciseId)
+    setLoading(false)
+  }
+
+  const isModal = position === 'modal'
+
+  return (
+    <button
+      onClick={handleClick}
+      style={{
+        position: 'absolute',
+        top:    isModal ? '14px' : '10px',
+        left:   isModal ? '14px' : '10px',
+        zIndex: 10,
+        width:  isModal ? '34px' : '28px',
+        height: isModal ? '34px' : '28px',
+        borderRadius: '50%',
+        background: isFav ? 'rgba(226,75,74,0.85)' : 'rgba(10,22,40,0.65)',
+        border: `0.5px solid ${isFav ? 'rgba(226,75,74,0.6)' : 'rgba(255,255,255,0.15)'}`,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        cursor: loading ? 'default' : 'pointer',
+        transition: 'all 0.2s', opacity: loading ? 0.6 : 1
+      }}
+      title={isFav ? 'Quitar de favoritos' : 'Agregar a favoritos'}
+    >
+      <svg
+        width={isModal ? '16' : '13'}
+        height={isModal ? '16' : '13'}
+        viewBox="0 0 24 24"
+        fill={isFav ? '#fff' : 'none'}
+        stroke={isFav ? '#fff' : 'rgba(255,255,255,0.8)'}
+        strokeWidth="2" strokeLinecap="round"
+      >
+        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+      </svg>
+    </button>
+  )
+}
+
+// ── Botón agregar a rutina ─────────────────────────────────────────────────
+
+const AddToRoutineBtn = ({ exercise, routines, onAdd, position = 'card' }) => {
+  const [open, setOpen] = useState(false)
+  const isModal         = position === 'modal'
+
+  const handleClick = (e) => {
+    e.stopPropagation()
+    setOpen(true)
+  }
+
+  return (
+    <>
+      <button
+        onClick={handleClick}
+        style={{
+          position: 'absolute',
+          top:    isModal ? '52px' : '42px',
+          left:   isModal ? '14px' : '10px',
+          zIndex: 10,
+          width:  isModal ? '34px' : '28px',
+          height: isModal ? '34px' : '28px',
+          borderRadius: '50%',
+          background: 'rgba(10,22,40,0.65)',
+          border: '0.5px solid rgba(255,255,255,0.15)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          cursor: 'pointer', transition: 'all 0.2s'
+        }}
+        title="Agregar a rutina"
+      >
+        <svg
+          width={isModal ? '16' : '13'}
+          height={isModal ? '16' : '13'}
+          viewBox="0 0 24 24" fill="none"
+          stroke="rgba(255,255,255,0.8)"
+          strokeWidth="2" strokeLinecap="round"
+        >
+          <path d="M6.5 6.5h11M6.5 17.5h11M3 9.5h3v5H3zM18 9.5h3v5h-3z"/>
+        </svg>
+      </button>
+
+      {open && (
+        <RoutineSelector
+          exercise={exercise}
+          routines={routines}
+          onAdd={onAdd}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
+  )
+}
+
+// ── Modal ejercicio ────────────────────────────────────────────────────────
+
+const ExerciseModal = ({ exercise, onClose, favoriteIds, onToggleFavorite, routines, onAddToRoutine }) => {
   const [showFull, setShowFull] = useState(false)
   const videoEmbed  = getVideoEmbed(exercise.video_url)
   const description = exercise.description ? exercise.description.replace(/<[^>]*>/g, '').trim() : ''
@@ -47,17 +434,12 @@ const ExerciseModal = ({ exercise, onClose }) => {
       <style>{`
         @keyframes modalIn {
           from { opacity: 0; transform: scale(0.92) translateY(24px); }
-          to   { opacity: 1; transform: scale(1)    translateY(0); }
+          to   { opacity: 1; transform: scale(1) translateY(0); }
         }
       `}</style>
-
-      <div
-        style={mStyles.modal}
-        onClick={e => e.stopPropagation()}
-      >
+      <div style={mStyles.modal} onClick={e => e.stopPropagation()}>
         <div style={{ animation: 'modalIn 0.32s cubic-bezier(0.34,1.56,0.64,1) forwards' }}>
 
-          {/* Imagen header */}
           <div style={mStyles.imgWrap}>
             {exercise.image_url
               ? <img src={exercise.image_url} alt={exercise.name} style={mStyles.img} />
@@ -71,9 +453,22 @@ const ExerciseModal = ({ exercise, onClose }) => {
                   </svg>
                 </div>
             }
-            <div style={mStyles.imgOverlay}></div>
+            <div style={mStyles.imgOverlay} />
 
-            {/* Botón cerrar */}
+            <FavoriteBtn
+              exerciseId={exercise.id}
+              favoriteIds={favoriteIds}
+              onToggle={onToggleFavorite}
+              position="modal"
+            />
+
+            <AddToRoutineBtn
+              exercise={exercise}
+              routines={routines}
+              onAdd={onAddToRoutine}
+              position="modal"
+            />
+
             <button style={mStyles.closeBtn} onClick={onClose}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
                 stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
@@ -82,7 +477,6 @@ const ExerciseModal = ({ exercise, onClose }) => {
               </svg>
             </button>
 
-            {/* Título + badges sobre imagen */}
             <div style={mStyles.titleOverlay}>
               <h2 style={mStyles.name}>{exercise.name}</h2>
               <div style={mStyles.badgeRow}>
@@ -96,10 +490,7 @@ const ExerciseModal = ({ exercise, onClose }) => {
             </div>
           </div>
 
-          {/* Cuerpo */}
           <div style={mStyles.body}>
-
-            {/* Músculos */}
             {exercise.muscles && exercise.muscles !== 'Ver detalle' && (
               <div style={mStyles.section}>
                 <div style={mStyles.sectionLabel}>Músculos trabajados</div>
@@ -111,7 +502,6 @@ const ExerciseModal = ({ exercise, onClose }) => {
               </div>
             )}
 
-            {/* Descripción */}
             {description ? (
               <div style={mStyles.section}>
                 <div style={mStyles.sectionLabel}>Descripción</div>
@@ -124,7 +514,6 @@ const ExerciseModal = ({ exercise, onClose }) => {
               </div>
             ) : null}
 
-            {/* Video embed */}
             {videoEmbed ? (
               <div style={mStyles.section}>
                 <div style={mStyles.sectionLabel}>
@@ -145,13 +534,12 @@ const ExerciseModal = ({ exercise, onClose }) => {
                 </div>
               </div>
             ) : exercise.video_url ? (
-  <div style={mStyles.section}>
-    <a href={exercise.video_url} target="_blank" rel="noreferrer" style={mStyles.externalLink}>
-      Ver video tutorial
-    </a>
-  </div>
-) : null}
-
+              <div style={mStyles.section}>
+                <a href={exercise.video_url} target="_blank" rel="noreferrer" style={mStyles.externalLink}>
+                  Ver video tutorial
+                </a>
+              </div>
+            ) : null}
           </div>
         </div>
       </div>
@@ -162,17 +550,21 @@ const ExerciseModal = ({ exercise, onClose }) => {
 // ── Página Library ─────────────────────────────────────────────────────────
 
 const Library = () => {
-  const { user } = useAuth()
+  const { user }                            = useAuth()
   const [categories, setCategories]         = useState([])
   const [exercises, setExercises]           = useState([])
   const [activeCategory, setActiveCategory] = useState(null)
   const [search, setSearch]                 = useState('')
   const [loading, setLoading]               = useState(true)
   const [selectedExercise, setSelectedExercise] = useState(null)
+  const [favoriteIds, setFavoriteIds]       = useState([])
+  const [routines, setRoutines]             = useState([])
 
   useEffect(() => {
     loadCategories()
     loadExercises()
+    loadFavoriteIds()
+    loadRoutines()
   }, [])
 
   const loadCategories = async () => {
@@ -196,6 +588,58 @@ const Library = () => {
       setLoading(false)
     }
   }
+
+  const loadFavoriteIds = async () => {
+    try {
+      const data = await FavoriteService.getIds()
+      setFavoriteIds(data.ids)
+    } catch (error) {
+      console.error('Error cargando favoritos:', error)
+    }
+  }
+
+  const loadRoutines = async () => {
+    try {
+      const data = await RoutineService.getAll()
+      setRoutines(data.routines)
+    } catch (error) {
+      console.error('Error cargando rutinas:', error)
+    }
+  }
+
+  const handleToggleFavorite = useCallback(async (exerciseId) => {
+    try {
+      const data = await FavoriteService.toggle(exerciseId)
+      if (data.favorited) {
+        setFavoriteIds(prev => [...prev, exerciseId])
+      } else {
+        setFavoriteIds(prev => prev.filter(id => id !== exerciseId))
+      }
+    } catch (error) {
+      console.error('Error toggling favorite:', error)
+    }
+  }, [])
+
+  const handleAddToRoutine = useCallback(async (routineId, exerciseId) => {
+    await RoutineService.addExercise(routineId, exerciseId)
+    setRoutines(prev => prev.map(r => {
+      if (r.id !== routineId) return r
+      const alreadyIn = r.exercises?.some(e => e.id === exerciseId)
+      if (alreadyIn) return r
+      const exercise = exercises.find(e => e.id === exerciseId)
+      return {
+        ...r,
+        exercises: [...(r.exercises || []), {
+          id:          exerciseId,
+          name:        exercise?.name       || '',
+          muscles:     exercise?.muscles    || '',
+          difficulty:  exercise?.difficulty || '',
+          image_url:   exercise?.image_url  || null,
+          order_index: (r.exercises?.length || 0)
+        }]
+      }
+    }))
+  }, [exercises])
 
   const handleCategoryClick = (slug) => {
     if (activeCategory === slug) {
@@ -233,34 +677,26 @@ const Library = () => {
         }
         @keyframes wave1 {
           0%,100% { transform: translate(0,0) scale(1); }
-          50%      { transform: translate(50px,-40px) scale(1.08); }
+          50%     { transform: translate(50px,-40px) scale(1.08); }
         }
         @keyframes wave2 {
           0%,100% { transform: translate(0,0) scale(1.05); }
-          50%      { transform: translate(-60px,50px) scale(0.95); }
+          50%     { transform: translate(-60px,50px) scale(0.95); }
         }
-        .ex-card:hover {
-          border-color: rgba(46,155,191,0.5) !important;
-          transform: translateY(-3px);
-        }
-        .cat-btn:hover {
-          border-color: rgba(46,155,191,0.4) !important;
-          color: var(--med-light) !important;
-        }
+        .ex-card:hover { border-color: rgba(46,155,191,0.5) !important; transform: translateY(-3px); }
+        .cat-btn:hover { border-color: rgba(46,155,191,0.4) !important; color: var(--med-light) !important; }
       `}</style>
 
-      {/* Fondo ondas */}
       <div style={styles.waveBg}>
-        <div style={styles.wave1}></div>
-        <div style={styles.wave2}></div>
-        <div style={styles.waveOverlay}></div>
+        <div style={styles.wave1} />
+        <div style={styles.wave2} />
+        <div style={styles.waveOverlay} />
       </div>
 
       <Navbar />
 
       <div style={styles.container}>
 
-        {/* Header */}
         <div style={{ ...styles.header, animation: 'fadeInUp 0.4s ease forwards' }}>
           <div>
             <h1 style={styles.title}>Biblioteca</h1>
@@ -271,7 +707,6 @@ const Library = () => {
           )}
         </div>
 
-        {/* Buscador */}
         <div style={styles.searchWrap}>
           <svg style={styles.searchIcon} viewBox="0 0 24 24" fill="none"
             stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -287,7 +722,6 @@ const Library = () => {
           />
         </div>
 
-        {/* Categorías */}
         <div style={styles.categoriesRow}>
           <button
             className="cat-btn"
@@ -315,15 +749,14 @@ const Library = () => {
           ))}
         </div>
 
-        {/* Grid */}
         {loading ? (
           <div style={styles.grid}>
             {[...Array(6)].map((_, i) => (
               <div key={i} style={styles.skeletonCard}>
-                <div style={{ ...styles.skeleton, height: '170px', borderRadius: '14px 14px 0 0' }}></div>
+                <div style={{ ...styles.skeleton, height: '170px', borderRadius: '14px 14px 0 0' }} />
                 <div style={{ padding: '14px 16px' }}>
-                  <div style={{ ...styles.skeleton, height: '15px', width: '65%', borderRadius: '4px', marginBottom: '8px' }}></div>
-                  <div style={{ ...styles.skeleton, height: '12px', width: '45%', borderRadius: '4px' }}></div>
+                  <div style={{ ...styles.skeleton, height: '15px', width: '65%', borderRadius: '4px', marginBottom: '8px' }} />
+                  <div style={{ ...styles.skeleton, height: '12px', width: '45%', borderRadius: '4px' }} />
                 </div>
               </div>
             ))}
@@ -354,16 +787,14 @@ const Library = () => {
                   DashboardService.logActivity('exercise_view', exercise.id)
                 }}
               >
-                {/* Shimmer */}
                 <div style={styles.shimmerWrap}>
-                  <div style={styles.shimmerLine}></div>
+                  <div style={styles.shimmerLine} />
                 </div>
 
-                {/* Imagen */}
                 {exercise.image_url
                   ? <div style={styles.cardImgWrap}>
                       <img src={exercise.image_url} alt={exercise.name} style={styles.cardImg} />
-                      <div style={styles.cardImgOverlay}></div>
+                      <div style={styles.cardImgOverlay} />
                     </div>
                   : <div style={styles.cardImgPlaceholder}>
                       <svg width="36" height="36" viewBox="0 0 24 24" fill="none"
@@ -375,7 +806,20 @@ const Library = () => {
                     </div>
                 }
 
-                {/* Badge dificultad */}
+                <FavoriteBtn
+                  exerciseId={exercise.id}
+                  favoriteIds={favoriteIds}
+                  onToggle={handleToggleFavorite}
+                  position="card"
+                />
+
+                <AddToRoutineBtn
+                  exercise={exercise}
+                  routines={routines}
+                  onAdd={handleAddToRoutine}
+                  position="card"
+                />
+
                 <div style={{
                   ...styles.diffBadgeFloat,
                   color: difficultyColor[exercise.difficulty],
@@ -385,12 +829,10 @@ const Library = () => {
                   {exercise.difficulty}
                 </div>
 
-                {/* Video indicator */}
                 {exercise.video_url && (
                   <div style={styles.videoIndicator}>▶</div>
                 )}
 
-                {/* Cuerpo */}
                 <div style={styles.cardBody}>
                   <h3 style={styles.cardTitle}>{exercise.name}</h3>
                   {exercise.muscles && exercise.muscles !== 'Ver detalle' && (
@@ -409,11 +851,14 @@ const Library = () => {
 
       </div>
 
-      {/* Modal */}
       {selectedExercise && (
         <ExerciseModal
           exercise={selectedExercise}
           onClose={() => setSelectedExercise(null)}
+          favoriteIds={favoriteIds}
+          onToggleFavorite={handleToggleFavorite}
+          routines={routines}
+          onAddToRoutine={handleAddToRoutine}
         />
       )}
 
@@ -494,7 +939,7 @@ const styles = {
     fontSize: '10px', fontWeight: '500', padding: '3px 9px', borderRadius: '20px'
   },
   videoIndicator: {
-    position: 'absolute', top: '10px', left: '10px', zIndex: 2,
+    position: 'absolute', top: '38px', right: '10px', zIndex: 2,
     fontSize: '10px', color: 'var(--white)',
     background: 'rgba(0,0,0,0.5)', borderRadius: '20px', padding: '3px 8px'
   },
@@ -512,7 +957,7 @@ const styles = {
   }
 }
 
-// ── Estilos modal ──────────────────────────────────────────────────────────
+// ── Estilos modal ejercicio ────────────────────────────────────────────────
 
 const mStyles = {
   overlay: {
@@ -521,10 +966,8 @@ const mStyles = {
     zIndex: 200, padding: '20px', backdropFilter: 'blur(4px)'
   },
   modal: {
-    width: '100%', maxWidth: '520px',
-    maxHeight: '90vh', overflowY: 'auto',
-    background: 'var(--navy-2)',
-    border: '0.5px solid rgba(46,155,191,0.2)',
+    width: '100%', maxWidth: '520px', maxHeight: '90vh', overflowY: 'auto',
+    background: 'var(--navy-2)', border: '0.5px solid rgba(46,155,191,0.2)',
     borderRadius: 'var(--radius-xl)', overflow: 'hidden'
   },
   imgWrap: { position: 'relative', height: '220px', overflow: 'hidden' },

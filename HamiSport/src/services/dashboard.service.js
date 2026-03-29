@@ -1,4 +1,3 @@
-/* eslint-disable no-unused-vars */
 import api from './api'
 
 const DashboardService = {
@@ -9,11 +8,13 @@ const DashboardService = {
   },
 
   logActivity: async (type, referenceId = null) => {
-    try {
-      await api.post('/dashboard/activity', { type, referenceId })
-    } catch (error) {
-      // Silencioso — no interrumpir la experiencia del usuario
-    }
+    const response = await api.post('/dashboard/activity', { type, referenceId })
+    return response.data
+  },
+
+  updateProfile: async (name, email, avatarUrl) => {
+    const response = await api.put('/dashboard/profile', { name, email, avatarUrl })
+    return response.data
   },
 
   changePassword: async (currentPassword, newPassword) => {

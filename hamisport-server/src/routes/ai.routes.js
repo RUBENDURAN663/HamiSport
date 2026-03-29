@@ -1,9 +1,10 @@
-const express      = require('express')
-const router       = express.Router()
-const AIController = require('../controllers/ai.controller')
+const express        = require('express')
+const router         = express.Router()
+const AIController   = require('../controllers/ai.controller')
 const authMiddleware = require('../middlewares/auth.middleware')
+const validate       = require('../middlewares/validate.middleware')
+const { chatRules }  = require('../middlewares/rules.middleware')
 
-// Ruta protegida — solo usuarios logueados pueden usar el asistente
-router.post('/chat', authMiddleware, AIController.chat)
+router.post('/chat', authMiddleware, chatRules, validate, AIController.chat)
 
 module.exports = router

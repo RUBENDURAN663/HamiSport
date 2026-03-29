@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
@@ -9,8 +9,16 @@ const Login = () => {
   const [loading, setLoading]   = useState(false)
   const [remember, setRemember] = useState(false)
 
-  const { login } = useAuth()
-  const navigate  = useNavigate()
+  const { login, sessionExpired } = useAuth()
+  const navigate = useNavigate()
+
+  // Leer sessionStorage como respaldo al estado del contexto
+  const wasExpired = sessionExpired ||
+    sessionStorage.getItem('hamisport_session_expired') === 'true'
+
+  useEffect(() => {
+    if (email || password) setError('')
+  }, [email, password])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -30,17 +38,17 @@ const Login = () => {
   return (
     <div style={styles.page}>
       <style>{`
-  @keyframes slideInLeft {
-    from { opacity: 0; transform: translateX(-40px); }
-    to   { opacity: 1; transform: translateX(0); }
-  }
-  @keyframes fadeInError {
-    from { opacity: 0; transform: translateY(-6px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-`}</style>
+        @keyframes slideInLeft {
+          from { opacity: 0; transform: translateX(-40px); }
+          to   { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes fadeInError {
+          from { opacity: 0; transform: translateY(-6px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
 
-      <div style={styles.bgGradient}></div>
+      <div style={styles.bgGradient} />
 
       <div style={styles.content}>
 
@@ -61,8 +69,22 @@ const Login = () => {
         <h1 style={styles.bigTitle}>Bienvenido<br/>de nuevo.</h1>
         <p style={styles.bigSubtitle}>Inicia sesión para continuar tu entrenamiento</p>
 
+        {/* Banner sesión expirada */}
+        {wasExpired && !error && (
+          <div style={{ ...styles.alertBox, ...styles.expiredBox }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+              stroke="#FAC775" strokeWidth="2" strokeLinecap="round"
+              style={{ flexShrink: 0 }}>
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="12 6 12 12 16 14"/>
+            </svg>
+            Tu sesión expiró. Inicia sesión de nuevo para continuar.
+          </div>
+        )}
+
+        {/* Error de credenciales */}
         {error && (
-          <div style={styles.errorBox}>
+          <div style={{ ...styles.alertBox, ...styles.errorBox }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
               stroke="#F09595" strokeWidth="2" strokeLinecap="round"
               style={{ flexShrink: 0 }}>
@@ -75,6 +97,7 @@ const Login = () => {
         )}
 
         <form onSubmit={handleSubmit} style={styles.form}>
+
           <div style={styles.formGroup}>
             <label style={styles.label}>Correo electrónico</label>
             <div style={styles.inputWrap}>
@@ -117,8 +140,8 @@ const Login = () => {
             <div
               style={{
                 ...styles.checkbox,
-                background: remember ? 'var(--purple-2)' : 'transparent',
-                borderColor: remember ? 'var(--violet)' : 'rgba(139,111,212,0.3)'
+                background:  remember ? 'var(--purple-2)' : 'transparent',
+                borderColor: remember ? 'var(--violet)'   : 'rgba(139,111,212,0.3)'
               }}
               onClick={() => setRemember(!remember)}
             >
@@ -148,6 +171,7 @@ const Login = () => {
               </svg>
             )}
           </button>
+
         </form>
 
         <p style={styles.footer}>
@@ -181,7 +205,7 @@ const Login = () => {
               'Planes por deporte'
             ].map((f, i) => (
               <div key={i} style={styles.featureItem}>
-                <div style={styles.featureDot}></div>
+                <div style={styles.featureDot} />
                 <span>{f}</span>
               </div>
             ))}
@@ -195,13 +219,11 @@ const Login = () => {
 
 const styles = {
   page: {
-  minHeight: '100vh',
-  display: 'flex',
-  position: 'relative',
-  overflow: 'hidden',
-  background: '#0a1628',
-  animation: 'slideInLeft 0.4s ease forwards'
-},
+    minHeight: '100vh', display: 'flex',
+    position: 'relative', overflow: 'hidden',
+    background: '#0a1628',
+    animation: 'slideInLeft 0.4s ease forwards'
+  },
   bgGradient: {
     position: 'absolute', inset: 0,
     background: 'linear-gradient(135deg, #2D1B69 0%, #1A2A3F 40%, #0D1B2A 70%, #1A2A3F 100%)',
@@ -211,12 +233,11 @@ const styles = {
     position: 'relative', zIndex: 1,
     flex: 1, maxWidth: '520px',
     padding: 'clamp(32px, 6vw, 64px) clamp(24px, 6vw, 64px)',
-    display: 'flex', flexDirection: 'column',
-    justifyContent: 'center'
+    display: 'flex', flexDirection: 'column', justifyContent: 'center'
   },
   logoRow: {
-    display: 'flex', alignItems: 'center', gap: '10px',
-    marginBottom: '48px'
+    display: 'flex', alignItems: 'center',
+    gap: '10px', marginBottom: '48px'
   },
   logoDot: {
     width: '36px', height: '36px', borderRadius: '9px',
@@ -229,25 +250,31 @@ const styles = {
     letterSpacing: '0.08em', color: '#F5F4FA'
   },
   bigTitle: {
-    fontSize: 'clamp(36px, 5vw, 52px)',
-    fontWeight: '500', color: '#F5F4FA',
-    lineHeight: '1.15', letterSpacing: '-0.02em',
-    marginBottom: '12px'
+    fontSize: 'clamp(36px, 5vw, 52px)', fontWeight: '500',
+    color: '#F5F4FA', lineHeight: '1.15',
+    letterSpacing: '-0.02em', marginBottom: '12px'
   },
   bigSubtitle: {
     fontSize: '15px', color: 'rgba(245,244,250,0.5)',
     marginBottom: '36px', lineHeight: '1.6'
   },
-  errorBox: {
-    background: 'rgba(226,75,74,0.12)',
-    border: '0.5px solid rgba(226,75,74,0.4)',
-    borderRadius: '8px', color: '#F09595',
-    fontSize: '13px', padding: '13px 16px',
-    marginBottom: '20px',
+  alertBox: {
+    borderRadius: '8px', fontSize: '13px',
+    padding: '13px 16px', marginBottom: '20px',
     display: 'flex', alignItems: 'center', gap: '10px',
     animation: 'fadeInError 0.3s ease'
   },
-  form: { display: 'flex', flexDirection: 'column', gap: '0' },
+  errorBox: {
+    background: 'rgba(226,75,74,0.12)',
+    border: '0.5px solid rgba(226,75,74,0.4)',
+    color: '#F09595'
+  },
+  expiredBox: {
+    background: 'rgba(239,159,39,0.1)',
+    border: '0.5px solid rgba(239,159,39,0.35)',
+    color: '#FAC775'
+  },
+  form:      { display: 'flex', flexDirection: 'column', gap: '0' },
   formGroup: { marginBottom: '18px' },
   label: {
     display: 'block', fontSize: '12px', fontWeight: '500',
@@ -294,16 +321,12 @@ const styles = {
     letterSpacing: '0.02em'
   },
   footer: {
-    fontSize: '13px', color: 'rgba(245,244,250,0.45)',
-    marginTop: '24px'
+    fontSize: '13px', color: 'rgba(245,244,250,0.45)', marginTop: '24px'
   },
-  footerLink: {
-    color: 'var(--violet-light)', fontWeight: '500'
-  },
+  footerLink: { color: 'var(--violet-light)', fontWeight: '500' },
   rightPanel: {
-    position: 'relative', zIndex: 1,
-    flex: 1, display: 'flex',
-    alignItems: 'center', justifyContent: 'center',
+    position: 'relative', zIndex: 1, flex: 1,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
     padding: '48px',
     borderLeft: '0.5px solid rgba(139,111,212,0.15)'
   },
@@ -316,9 +339,8 @@ const styles = {
     marginBottom: '28px'
   },
   rightTitle: {
-    fontSize: '32px', fontWeight: '500',
-    color: '#F5F4FA', lineHeight: '1.2',
-    letterSpacing: '-0.02em', marginBottom: '16px'
+    fontSize: '32px', fontWeight: '500', color: '#F5F4FA',
+    lineHeight: '1.2', letterSpacing: '-0.02em', marginBottom: '16px'
   },
   rightDesc: {
     fontSize: '14px', color: 'rgba(245,244,250,0.5)',
