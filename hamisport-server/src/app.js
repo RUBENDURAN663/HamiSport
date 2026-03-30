@@ -36,10 +36,18 @@ const aiLimiter = rateLimit({
 // ─── Middlewares globales ─────────────────────────────────────────────────────
 
 app.use(cors({
-  origin: [
-    'http://localhost:5173',
-    process.env.CLIENT_URL
-  ].filter(Boolean),
+  origin: (origin, callback) => {
+    const allowed = [
+      'http://localhost:5173',
+      'https://hamisport.onrender.com'
+    ]
+    // Permitir cualquier dominio de Vercel
+    if (!origin || allowed.includes(origin) || origin.endsWith('.vercel.app')) {
+      callback(null, true)
+    } else {
+      callback(new Error('No permitido por CORS'))
+    }
+  },
   credentials: true
 }))
 app.use(express.json())
